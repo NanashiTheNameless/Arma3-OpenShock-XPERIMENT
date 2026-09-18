@@ -16,6 +16,7 @@ class CfgFunctions {
 			class shock{};
 			class vibrate{};
 			class beep{};
+			class extensionError{};
 			class shockEH_handler{};
 			class vibrateEH_handler{};
 			class beepEH_handler{};

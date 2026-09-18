@@ -45,6 +45,12 @@ Credentials are client settings stored by CBA in your Arma profile. They are not
 
 **Display Responses** shows asynchronous API acceptance or failure in system chat. An immediate `request queued` result only means the worker started. API acceptance does not confirm physical delivery. Requests have a 10-second timeout and are not automatically retried. The global cooldown applies across shock, vibration, and beep, in addition to each action's own cooldown.
 
+### Troubleshooting 403 errors
+
+- **`engine 403` / `extension -1`** means **BattlEye blocked the extension**, before it could contact OpenShock. This is an [Arma `callExtension` error](https://community.bistudio.com/wiki/callExtension), not an HTTP status. For local single-player testing, disable BattlEye in the launcher and restart Arma. BattlEye-protected servers require a BattlEye-approved extension; changing the API token or signing the addon PBO does not provide that approval. Check the Arma RPT log for loading details.
+- **`OpenShock rejected request (HTTP 403)`** comes from the network request. Check the API token's `Shockers_Use` permission, pause state, and permission to control the selected shocker and operation. Known API errors now get specific explanations; HTML denials and Cloudflare challenges are identified separately when the response provides that information.
+- Enter your **OpenShock API token**. Leading/trailing whitespace is trimmed. Never paste the token into an issue or chat.
+
 ## Building and installing
 
 Install [Rust](https://www.rust-lang.org/tools/install) and Arma 3 Tools (Addon Builder). The Rust dependency `arma-rs` comes from crates.io; no sibling checkout is required.
@@ -83,9 +89,9 @@ Existing SQF function names remain available:
 
 The addon calls `arma3_openshock` with `ops:shock` / `ops:vibrate` arguments `[shockerId, apiToken, intensity, durationSeconds]`, or `ops:beep` arguments `[shockerId, apiToken, durationSeconds]`. Callbacks use the name `arma3_openshock` and function `Shock`, `Vibrate`, or `Beep`.
 
-Requests use `POST https://api.openshock.app/2/shockers/control`, the `OpenShockToken` header, and a descriptive User-Agent. Beep maps to OpenShock's `Sound` operation with intensity 0. Seconds are multiplied by 1000 exactly once at the API boundary: 5 seconds becomes 5000 milliseconds. The mod retains its 1–15 second limit even though the API accepts a wider range.
+Requests use `POST https://api.openshock.app/2/shockers/control`, the documented `Open-Shock-Token` header, `Content-Type: application/json`, and `Accept: application/json, application/problem+json`. The User-Agent includes `Arma3-OpenShock/<version>` and this fork's repository URL. Redirects are not followed. Beep maps to OpenShock's `Sound` operation with intensity 0. Seconds are multiplied by 1000 exactly once at the API boundary: 5 seconds becomes 5000 milliseconds. The mod retains its 1–15 second limit even though the API accepts a wider range.
 
-The control request was checked against the supplied OpenShock v2 API schema. See the [OpenShock developer documentation](https://wiki.openshock.org/dev) for the API reference.
+The control request and authentication were checked against the [OpenShock developer documentation](https://wiki.openshock.org/dev) and [server implementation](https://github.com/OpenShock/API/blob/master/API/Controller/Shockers/SendControl.cs). The server [accepts both `OpenShockToken` and `Open-Shock-Token`](https://github.com/OpenShock/API/blob/master/Common/Extensions/HttpContextExtensions.cs); the old spelling alone does not explain a 403.
 
 ## License and attribution
 

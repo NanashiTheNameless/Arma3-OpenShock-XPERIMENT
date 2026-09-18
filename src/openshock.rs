@@ -1,11 +1,20 @@
-use reqwest::{blocking::Client, header::HeaderValue, redirect::Policy};
+use reqwest::{
+    blocking::{Client, Response},
+    header::{HeaderValue, ACCEPT, CONTENT_TYPE},
+    redirect::Policy,
+};
 use serde::Serialize;
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 use uuid::Uuid;
 
 pub const CONTROL_URL: &str = "https://api.openshock.app/2/shockers/control";
-const TOKEN_HEADER: &str = "OpenShockToken";
-const USER_AGENT: &str = concat!("Arma3-OpenShock/", env!("CARGO_PKG_VERSION"));
+// https://wiki.openshock.org/dev#authentication
+const TOKEN_HEADER: &str = "Open-Shock-Token";
+const USER_AGENT: &str = concat!(
+    "Arma3-OpenShock/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/NanashiTheNameless/Arma3-OpenShock-XPERIMENT)"
+);
 
 #[derive(Clone, Copy, Serialize)]
 pub enum Operation {
@@ -99,6 +108,7 @@ pub fn send(url: &str, token: HeaderValue, request: &ControlRequest) -> Result<S
     let response = client
         .post(url)
         .header(TOKEN_HEADER, token)
+        .header(ACCEPT, "application/json, application/problem+json")
         .json(request)
         .send()
         .map_err(|error| {
@@ -115,11 +125,63 @@ pub fn send(url: &str, token: HeaderValue, request: &ControlRequest) -> Result<S
             status.as_u16()
         ))
     } else {
-        // Do not echo response bodies or credentials into the game's chat/logs.
         Err(format!(
-            "OpenShock rejected request (HTTP {}); check token, shocker permissions and connection",
-            status.as_u16()
+            "OpenShock rejected request (HTTP {}); {}",
+            status.as_u16(),
+            rejection_reason(response)
         ))
+    }
+}
+
+fn rejection_reason(response: Response) -> &'static str {
+    let status = response.status().as_u16();
+    if response
+        .headers()
+        .get("cf-mitigated")
+        .and_then(|v| v.to_str().ok())
+        == Some("challenge")
+    {
+        return "Cloudflare challenged the request before API authentication; check network access to api.openshock.app";
+    }
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if content_type == "application/problem+json" || content_type == "application/json" {
+        // Only map known problem types to fixed text. Never display arbitrary server
+        // text (which could contain credentials), and bound how much we read.
+        let mut body = Vec::new();
+        if response.take(8193).read_to_end(&mut body).is_ok() && body.len() <= 8192 {
+            if let Ok(problem) = serde_json::from_slice::<serde_json::Value>(&body) {
+                match problem.get("type").and_then(|v| v.as_str()) {
+                    Some("Authorization.Token.PermissionMissing") => return "API token lacks the required Shockers_Use permission; check its permissions in OpenShock",
+                    Some("ApiToken.Paused") => return "API token is paused; check its control settings in OpenShock",
+                    Some("Shocker.Control.NoPermission") => return "control denied for this shocker; check token and share permissions for the requested operation",
+                    Some("Shocker.Control.Paused") => return "shocker or share is paused; check its settings in OpenShock",
+                    Some("Authentication.TokenInvalid") => return "API token is invalid or expired; update the token in Addon Options",
+                    Some("Authentication.HeaderMissingOrInvalid") => return "API token header was missing or invalid; check the token and any proxy",
+                    Some("Authentication.AccountDeactivated") => return "OpenShock account is deactivated",
+                    _ => {}
+                }
+            }
+        }
+    } else if status == 403 && content_type == "text/html" {
+        return "received an HTML denial page; a proxy or firewall may have blocked the request before API authentication";
+    }
+    match status {
+        401 => "authentication failed; check that the raw API token is valid and unexpired",
+        403 => "access forbidden; check Shockers_Use permission, token pause state and shocker/share permissions; a proxy or firewall may also deny access",
+        404 => "shocker or endpoint not found; check the Shocker ID and account access",
+        412 => "control precondition failed; check whether the shocker or share is paused",
+        429 => "rate limited; wait and increase the addon cooldown",
+        300..=399 => "unexpected redirect was not followed; check the API endpoint",
+        _ => "check token, shocker permissions and connection",
     }
 }
 
@@ -173,11 +235,90 @@ mod tests {
             assert!(token_header(token).is_err());
         }
         assert!(token_header("test-token").unwrap().is_sensitive());
+        assert_eq!(token_header(" \r\ntest-token\t ").unwrap(), "test-token");
     }
 
     #[test]
     fn http_contract_and_error_statuses_use_a_local_mock_only() {
-        for status in [200, 204, 302, 400, 401, 403, 429, 500] {
+        for (status, content_type, body, expected, extra_headers) in [
+            (200, "application/json", "", "accepted", ""),
+            (204, "application/json", "", "accepted", ""),
+            (
+                302,
+                "text/html",
+                "",
+                "redirect was not followed",
+                "Location: https://api.openshock.app/\r\n",
+            ),
+            (400, "application/json", "", "rejected", ""),
+            (401, "application/json", "", "authentication failed", ""),
+            (403, "application/json", "", "Shockers_Use", ""),
+            (
+                403,
+                "application/problem+json; charset=utf-8",
+                r#"{"type":"Authorization.Token.PermissionMissing","detail":"test-token"}"#,
+                "lacks the required Shockers_Use",
+                "",
+            ),
+            (
+                403,
+                "application/problem+json",
+                r#"{"type":"ApiToken.Paused"}"#,
+                "API token is paused",
+                "",
+            ),
+            (
+                403,
+                "application/problem+json",
+                r#"{"type":"Shocker.Control.NoPermission"}"#,
+                "control denied for this shocker",
+                "",
+            ),
+            (
+                401,
+                "application/problem+json",
+                r#"{"type":"Authentication.TokenInvalid"}"#,
+                "invalid or expired",
+                "",
+            ),
+            (
+                412,
+                "application/problem+json",
+                r#"{"type":"Shocker.Control.Paused"}"#,
+                "shocker or share is paused",
+                "",
+            ),
+            (
+                403,
+                "text/html",
+                "<html>test-token</html>",
+                "HTML denial page",
+                "",
+            ),
+            (
+                403,
+                "text/html",
+                "<html>test-token</html>",
+                "Cloudflare challenged",
+                "cf-mitigated: challenge\r\n",
+            ),
+            (
+                403,
+                "application/json",
+                r#"{"type":"test-token","title":"test-token"}"#,
+                "access forbidden",
+                "",
+            ),
+            (
+                403,
+                "application/problem+json",
+                "invalid JSON test-token",
+                "access forbidden",
+                "",
+            ),
+            (429, "application/json", "", "rate limited", ""),
+            (500, "application/json", "", "rejected", ""),
+        ] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let url = format!(
                 "http://{}/2/shockers/control",
@@ -204,10 +345,15 @@ mod tests {
                             .unwrap();
                         if raw.len() >= end + 4 + length {
                             assert!(headers.starts_with("post /2/shockers/control http/1.1"));
-                            assert!(headers.contains("openshocktoken: test-token"));
+                            assert!(headers
+                                .lines()
+                                .any(|line| line == "open-shock-token: test-token"));
+                            assert!(!headers.contains("authorization:"));
                             assert!(headers
                                 .contains(&format!("user-agent: {}", USER_AGENT.to_lowercase())));
                             assert!(headers.contains("content-type: application/json"));
+                            assert!(headers
+                                .contains("accept: application/json, application/problem+json"));
                             let body: serde_json::Value =
                                 serde_json::from_slice(&raw[end + 4..]).unwrap();
                             assert_eq!(body["shocks"][0]["type"], "Vibrate");
@@ -218,15 +364,16 @@ mod tests {
                 }
                 write!(
                     stream,
-                    "HTTP/1.1 {status} Mock\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    "HTTP/1.1 {status} Mock\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{extra_headers}Connection: close\r\n\r\n{body}", body.len()
                 )
                 .unwrap();
             });
             let request = ControlRequest::new(ID.into(), Operation::Vibrate, 1, 1).unwrap();
-            let result = send(&url, token_header("test-token").unwrap(), &request);
+            let result = send(&url, token_header("  test-token\r\n").unwrap(), &request);
             assert_eq!(result.is_ok(), (200..300).contains(&status));
             let message = result.unwrap_or_else(|error| error);
             assert!(message.contains(&status.to_string()));
+            assert!(message.contains(expected), "{message}");
             assert!(!message.contains("test-token"));
             server.join().unwrap();
         }

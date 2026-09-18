@@ -70,7 +70,7 @@ if ((_now - (player getVariable ["NUG_lastActionTime", -1e9])) < (round NUG_glob
 private _result = "arma3_openshock" callExtension ["ops:shock", [NUG_openShock_shockerId, NUG_openShock_apiToken, round _intensity, round _duration]];
 _result params ["_message", "_returnCode", "_errorCode"];
 if (_returnCode != 0 || _errorCode != 0) exitWith {
-    systemChat format ["OpenShock command rejected: %1 (extension %2, engine %3)", _message, _returnCode, _errorCode];
+    _result call NUG_fnc_extensionError;
 };
 player setVariable ["NUG_lastShockTime", _now];
 player setVariable ["NUG_lastActionTime", _now];
