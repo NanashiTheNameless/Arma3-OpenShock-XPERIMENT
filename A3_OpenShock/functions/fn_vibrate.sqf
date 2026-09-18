@@ -2,24 +2,26 @@
     Author: Ken The Nugget
 
     Description:
-    Sends a shock request to the arma3_pishock extension.
+    Sends a vibrate request to the arma3_openshock extension.
 
     Parameter(s):
-    0: Integer (1 - 100) - Intensity of the shock.
-	1: Integer (1 - 15) - Duration of the shock.
+    0: Integer (1 - 100) - Intensity of the vibrate.
+	1: Integer (1 - 15) - Duration of the vibrate.
 
     Return(s):
     None
 
     Example:
-    [50, 5] call NUG_fnc_shock
+    [50, 5] call NUG_fnc_vibrate
 */
+
+if (!hasInterface || isNull player) exitWith {};
 
 params ["_intensity", "_duration"];
 
 // Consent check
 
-if (isRemoteExecuted && !(player getVariable "NUG_allowRE")) exitWith {
+if (isRemoteExecuted && !(player getVariable ["NUG_allowRE", false])) exitWith {
 	private _remoteExecutor = remoteExecutedOwner; // Store Executor ID
 	
 	if (_remoteExecutor <= 2) then { // Check if the executor is the server
@@ -42,10 +44,10 @@ if (isRemoteExecuted && !(player getVariable "NUG_allowRE")) exitWith {
 	};
 };
 
-// PiShock Check
+// OpenShock Check
 
-if !(player getVariable "NUG_killswitch") exitWith {
-	systemChat format ["Killswitch off, Shock not sent!"];
+if !(player getVariable ["NUG_killswitch", false]) exitWith {
+	systemChat "OpenShock disabled; command not sent.";
 };
 
 // Intensity and Duration checks
@@ -58,11 +60,17 @@ if (_duration > 15 || _duration < 1) exitWith {
 	systemChat format ["Duration out of bounds"];
 };
 
-// Cooldown check
-
-if (((round time) - (player getVariable "NUG_lastShockTime")) < ((round NUG_global_cooldown) max (round NUG_shock_cooldown))) then {
-	systemChat "Shock on cooldown";
-} else {		
-	"arma3_pishock" callExtension ["ops:shock", [NUG_userName, NUG_shareCode, NUG_APIKEY, round _intensity, round _duration]];
-	player setVariable ["NUG_lastShockTime", (round time)];
+// Shared and per-action cooldowns both apply.
+private _now = diag_tickTime;
+if ((_now - (player getVariable ["NUG_lastActionTime", -1e9])) < (round NUG_global_cooldown)
+    || {(_now - (player getVariable ["NUG_lastVibrateTime", -1e9])) < (round NUG_vibrate_cooldown)}) exitWith {
+    systemChat "Vibrate on cooldown";
 };
+
+private _result = "arma3_openshock" callExtension ["ops:vibrate", [NUG_openShock_shockerId, NUG_openShock_apiToken, round _intensity, round _duration]];
+_result params ["_message", "_returnCode", "_errorCode"];
+if (_returnCode != 0 || _errorCode != 0) exitWith {
+    systemChat format ["OpenShock command rejected: %1 (extension %2, engine %3)", _message, _returnCode, _errorCode];
+};
+player setVariable ["NUG_lastVibrateTime", _now];
+player setVariable ["NUG_lastActionTime", _now];

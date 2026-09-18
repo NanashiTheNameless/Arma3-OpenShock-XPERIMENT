@@ -1,12 +1,13 @@
 if (!hasInterface) exitWith {}; // No need for server or headless to run this
-#include "CBA_Keybinds.sqf"
+
 
 0 spawn {
 	waitUntil { sleep 1; not isNull player };
 	
-	player setVariable ["NUG_lastShockTime", 0];
-	player setVariable ["NUG_lastVibrateTime", 0];
-	player setVariable ["NUG_lastBeepTime", 0];
+	player setVariable ["NUG_lastActionTime", -1e9];
+	player setVariable ["NUG_lastShockTime", -1e9];
+	player setVariable ["NUG_lastVibrateTime", -1e9];
+	player setVariable ["NUG_lastBeepTime", -1e9];
 
 	player setVariable ["NUG_shockEHIndex", -1];
 	player setVariable ["NUG_shockEHType", -1];
@@ -22,11 +23,10 @@ if (!hasInterface) exitWith {}; // No need for server or headless to run this
 	player setVariable ["NUG_killswitch", false];
 	player setVariable ["NUG_allowRE", false];
 
-	if (NUG_piShock_enable) then {
+	if (NUG_openShock_enable) then {
 		[1] call NUG_fnc_killswitch_handler;
 	} else {
 		[2] call NUG_fnc_killswitch_handler;
-		if (true) exitWith {};
 	};
 
 	if (NUG_allow_remoteExec) then {

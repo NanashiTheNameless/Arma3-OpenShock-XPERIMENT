@@ -1,169 +1,108 @@
-#![allow(unused_must_use)] // Suppresses arma-rs context warning
-use arma_rs::{arma, Extension, Group};
+use arma_rs::{arma, Context, Extension, Group};
+
+mod openshock;
 
 #[arma]
 fn init() -> Extension {
-    let ext = Extension::build()
+    Extension::build()
         .group(
             "ops",
             Group::new()
-            .command("shock", ops::shock)
-            .command("vibrate", ops::vibrate)
-            .command("beep", ops::beep),
-        );
-    ext.finish()
+                .command("shock", shock)
+                .command("vibrate", vibrate)
+                .command("beep", beep),
+        )
+        .finish()
 }
 
-mod ops {
-use std::collections::HashMap;
-use reqwest::header::CONTENT_TYPE;
-use arma_rs::Context;
+fn shock(
+    ctx: Context,
+    shocker_id: String,
+    api_token: String,
+    intensity: u32,
+    duration: u32,
+) -> Result<String, String> {
+    dispatch(
+        ctx,
+        shocker_id,
+        api_token,
+        openshock::Operation::Shock,
+        intensity,
+        duration,
+    )
+}
 
-    pub fn shock(ctx: Context, username: String, sharecode: String, api_key: String, intensity: u32, duration: u32) -> String {
-		
-		// Gather Call Context
-		let call_context = format!(
-			"{:?},{:?},{:?},{:?}",
-			ctx.caller(),
-			ctx.source(),
-			ctx.mission(),
-			ctx.server()
-		);
-		
-		// Sanity Checks, if you trigger these, you probably shouldn't be here!
-		match intensity {
-			1..=100 => {}
-			_ => {
-				return format!("Intensity out of range!,{:?}", call_context);
-			}
-		}
-		
-		match duration {
-			1..=15 => {}
-			_ => {
-				return format!("Duration out of range!,{:?}", call_context);
-			}
-		}
-		
-		// Spawns thread for the HTTPS Request, Prevents freezing the game while waiting response
-		std::thread::spawn(move || {
-			let mut map = HashMap::new();
-			map.insert("Username".to_string(), username);
-			map.insert("Name".to_string(), "A3_Pishock_V1.0.0".to_string());
-			map.insert("Code".to_string(), sharecode);
-			map.insert("Intensity".to_string(), intensity.to_string());
-			map.insert("Duration".to_string(), duration.to_string());
-			map.insert("Apikey".to_string(), api_key);
-			map.insert("Op".to_string(), "0".to_string());
+fn vibrate(
+    ctx: Context,
+    shocker_id: String,
+    api_token: String,
+    intensity: u32,
+    duration: u32,
+) -> Result<String, String> {
+    dispatch(
+        ctx,
+        shocker_id,
+        api_token,
+        openshock::Operation::Vibrate,
+        intensity,
+        duration,
+    )
+}
 
-			let client = reqwest::blocking::Client::new();
-			let res = client.post("https://do.pishock.com/api/apioperate")
-				.header(CONTENT_TYPE, "application/json")
-				.json(&map)
-				.send()
-				.expect("Failed to get response")
-				.text()
-				.expect("Failed to get payload");
-			ctx.callback_data("arma3_pishock", "Shock", Some(res));
-		});
-		
-		// Returns success message with call context
-		return format!("Shock command sent successfully,{:?}", call_context);
-    }
-	
-    pub fn vibrate(ctx: Context, username: String, sharecode: String, api_key: String, intensity: u32, duration: u32) -> String {
-		
-		// Gather Call Context
-		let call_context = format!(
-			"{:?},{:?},{:?},{:?}",
-			ctx.caller(),
-			ctx.source(),
-			ctx.mission(),
-			ctx.server()
-		);
-		
-		// Sanity Checks, if you trigger these, you probably shouldn't be here!
-		match intensity {
-			1..=100 => {}
-			_ => {
-				return format!("Intensity out of range!,{:?}", call_context);
-			}
-		}
-		
-		match duration {
-			1..=15 => {}
-			_ => {
-				return format!("Duration out of range!,{:?}", call_context);
-			}
-		}
-		
-		// Spawns thread for the HTTPS Request, Prevents freezing the game while waiting response
-		std::thread::spawn(move || {
-			let mut map = HashMap::new();
-			map.insert("Username".to_string(), username);
-			map.insert("Name".to_string(), "A3_Pishock_V1.0.0".to_string());
-			map.insert("Code".to_string(), sharecode);
-			map.insert("Intensity".to_string(), intensity.to_string());
-			map.insert("Duration".to_string(), duration.to_string());
-			map.insert("Apikey".to_string(), api_key);
-			map.insert("Op".to_string(), "1".to_string());
+fn beep(
+    ctx: Context,
+    shocker_id: String,
+    api_token: String,
+    duration: u32,
+) -> Result<String, String> {
+    dispatch(
+        ctx,
+        shocker_id,
+        api_token,
+        openshock::Operation::Sound,
+        0,
+        duration,
+    )
+}
 
-			let client = reqwest::blocking::Client::new();
-			let res = client.post("https://do.pishock.com/api/apioperate")
-				.header(CONTENT_TYPE, "application/json")
-				.json(&map)
-				.send()
-				.expect("Failed to get response")
-				.text()
-				.expect("Failed to get payload");
-			ctx.callback_data("arma3_pishock", "Vibrate", Some(res));
-		});
-		
-		// Returns success message with call context
-		return format!("Shock command sent successfully,{:?}", call_context);
-    }
-	
-    pub fn beep(ctx: Context, username: String, sharecode: String, api_key: String, duration: u32) -> String {
-		
-		// Gather Call Context
-		let call_context = format!(
-			"{:?},{:?},{:?},{:?}",
-			ctx.caller(),
-			ctx.source(),
-			ctx.mission(),
-			ctx.server()
-		);
-		
-		// Sanity Checks, if you trigger these, you probably shouldn't be here!
-		match duration {
-			1..=15 => {}
-			_ => {
-				return format!("Duration out of range!,{:?}", call_context);
-			}
-		}
-		
-		// Spawns thread for the HTTPS Request, Prevents freezing the game while waiting response
-		std::thread::spawn(move || {
-			let mut map = HashMap::new();
-			map.insert("Username".to_string(), username);
-			map.insert("Name".to_string(), "A3_Pishock_V1.0.0".to_string());
-			map.insert("Code".to_string(), sharecode);
-			map.insert("Duration".to_string(), duration.to_string());
-			map.insert("Apikey".to_string(), api_key);
-			map.insert("Op".to_string(), "2".to_string());
+fn dispatch(
+    ctx: Context,
+    shocker_id: String,
+    api_token: String,
+    operation: openshock::Operation,
+    intensity: u32,
+    duration: u32,
+) -> Result<String, String> {
+    let request = openshock::ControlRequest::new(shocker_id, operation, intensity, duration)?;
+    let token = openshock::token_header(&api_token)?;
+    // Keep network I/O off Arma's game thread. A queued request is not an API success.
+    std::thread::Builder::new()
+        .name("openshock-request".into())
+        .spawn(move || {
+            let result = openshock::send(openshock::CONTROL_URL, token, &request)
+                .unwrap_or_else(|error| error);
+            let _ = ctx.callback_data("arma3_openshock", operation.callback_name(), Some(result));
+        })
+        .map_err(|_| "Could not start OpenShock request worker".to_string())?;
+    Ok(format!("{} request queued", operation.callback_name()))
+}
 
-			let client = reqwest::blocking::Client::new();
-			let res = client.post("https://do.pishock.com/api/apioperate")
-				.header(CONTENT_TYPE, "application/json")
-				.json(&map)
-				.send()
-				.expect("Failed to get response")
-				.text()
-				.expect("Failed to get payload");
-			ctx.callback_data("arma3_pishock", "Beep", Some(res));
-		});
-		
-		// Returns success message with call context
-		return format!("Shock command sent successfully,{:?}", call_context);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_commands_reject_invalid_arguments_without_network_io() {
+        let extension = init().testing();
+        for command in ["ops:shock", "ops:vibrate", "ops:beep"] {
+            let mut args = vec!["not-a-uuid".to_string(), "test-token".to_string()];
+            if command != "ops:beep" {
+                args.push("1".into());
+            }
+            args.push("1".into());
+            let (message, code) = extension.call(command, Some(args));
+            assert_eq!(code, 9, "{command}: {message}");
+            assert!(message.contains("Shocker ID"));
+        }
     }
 }

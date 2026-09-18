@@ -1,17 +1,17 @@
 [package]
-name = "arma3-pishock"
+name = "arma3-openshock"
 version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.12", features = ["full"] }
-reqwest = { version = "0.11", features = ["json", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arma-rs = { path = "../arma-rs" }
+arma-rs = "=1.13.0"
+uuid = "1"
 
 [lib]
-name = "arma3_pishock"
+name = "arma3_openshock"
 crate-type = ["cdylib"]

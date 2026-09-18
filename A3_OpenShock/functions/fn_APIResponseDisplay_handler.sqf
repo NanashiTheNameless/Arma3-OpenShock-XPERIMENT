@@ -18,7 +18,7 @@ params ["_state"];
 
 switch (_state) do {
 	case 0: { // Toggle
-		if (player getVariable "NUG_debugEHIndex" < 0) then {
+		if ((player getVariable ["NUG_debugEHIndex", -1]) < 0) then {
 			[1] call NUG_fnc_APIResponseDisplay_handler;
 		} else {
 			[2] call NUG_fnc_APIResponseDisplay_handler;
@@ -27,15 +27,15 @@ switch (_state) do {
 	
 	case 1: { // Enable
 		// Remove old EH if exists
-		if (player getVariable "NUG_debugEHIndex" >= 0)then {
-			removeMissionEventHandler ["ExtensionCallback", player getVariable "NUG_debugEHIndex"];
+		if ((player getVariable ["NUG_debugEHIndex", -1]) >= 0)then {
+			removeMissionEventHandler ["ExtensionCallback", (player getVariable ["NUG_debugEHIndex", -1])];
 			player setVariable ["NUG_debugEHIndex", -1];
 		};
 
 		// Add new EH
 		_EHIndex = addMissionEventHandler ["ExtensionCallback", {
 			params ["_name", "_function", "_data"];
-			if (_name != "arma3_pishock") exitWith {};
+			if (_name != "arma3_openshock") exitWith {};
 			systemChat format ["%1 Command: %2", _function, _data];
 		}];
 
@@ -47,8 +47,8 @@ switch (_state) do {
 	
 	case 2: { // Disable
 		// Remove EH
-		if (player getVariable "NUG_debugEHIndex" >= 0) then {
-			removeMissionEventHandler ["ExtensionCallback", player getVariable "NUG_debugEHIndex"];
+		if ((player getVariable ["NUG_debugEHIndex", -1]) >= 0) then {
+			removeMissionEventHandler ["ExtensionCallback", (player getVariable ["NUG_debugEHIndex", -1])];
 			player setVariable ["NUG_debugEHIndex", -1];
 			systemChat "API response disabled";
 		};

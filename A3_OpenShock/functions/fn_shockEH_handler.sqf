@@ -2,7 +2,7 @@
     Author: Ken The Nugget
 
     Description:
-    Handles Toggle/Enable/Disable EH for PiShock Shock Command.
+    Handles Toggle/Enable/Disable EH for OpenShock Shock Command.
 
     Parameter(s):
     0: Integer (0 - 2) - Selection Toggle/Enable/Disable.
@@ -14,11 +14,13 @@
     [0] call NUG_fnc_shockEH_handler
 */
 
+if (!hasInterface || isNull player || isRemoteExecuted) exitWith {};
+
 params ["_state"];
 
 switch (_state) do {
 	case 0: { // Toggle
-		if (player getVariable "NUG_shockEHIndex" < 0)  then {
+		if ((player getVariable ["NUG_shockEHIndex", -1]) < 0)  then {
 			[1] call NUG_fnc_shockEH_handler;
 		} else {
 			[2] call NUG_fnc_shockEH_handler;
@@ -27,8 +29,8 @@ switch (_state) do {
 	
 	case 1: { // Enable
 		// Remove old EH if exists
-		if (player getVariable "NUG_shockEHIndex" >= 0) then {
-			player removeEventHandler [player getVariable "NUG_shockEHType", player getVariable "NUG_shockEHIndex"];
+		if ((player getVariable ["NUG_shockEHIndex", -1]) >= 0) then {
+			player removeEventHandler [(player getVariable ["NUG_shockEHType", -1]), (player getVariable ["NUG_shockEHIndex", -1])];
 			player setVariable ["NUG_shockEHIndex", -1];
 			player setVariable ["NUG_shockEHType", -1];
 		};
@@ -47,8 +49,8 @@ switch (_state) do {
 	
 	case 2: { // Disable
 		// Remove EH
-		if (player getVariable "NUG_shockEHIndex" >= 0) then {
-			player removeEventHandler [player getVariable "NUG_shockEHType", player getVariable "NUG_shockEHIndex"];
+		if ((player getVariable ["NUG_shockEHIndex", -1]) >= 0) then {
+			player removeEventHandler [(player getVariable ["NUG_shockEHType", -1]), (player getVariable ["NUG_shockEHIndex", -1])];
 			player setVariable ["NUG_shockEHIndex", -1];
 			player setVariable ["NUG_shockEHType", -1];
 			systemChat "Shocks disabled";
