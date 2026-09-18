@@ -1,0 +1,172 @@
+name: Nightly Rolling
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never interrupt a release while its assets and tag are being updated.
+concurrency:
+  group: nightly-rolling
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  extension:
+    name: Build Windows x64 extension
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --target x86_64-pc-windows-msvc
+      - name: Check formatting
+        run: cargo +stable fmt --check
+      - name: Lint
+        run: cargo +stable clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Test without hardware
+        run: cargo +stable test --locked --target x86_64-pc-windows-msvc
+      - name: Build extension
+        run: cargo +stable build --release --locked --target x86_64-pc-windows-msvc
+      - name: Apply Arma extension filename
+        run: Copy-Item target/x86_64-pc-windows-msvc/release/arma3_openshock.dll arma3_openshock_x64.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-extension
+          path: arma3_openshock_x64.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  addon:
+    name: Build addon PBO
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install PBO build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Install PBO builder
+        run: cargo +stable install armake2 --version 0.3.0
+      - name: Build and verify PBO
+        shell: bash
+        run: |
+          armake2 build -e prefix=A3_OpenShock A3_OpenShock A3_OpenShock.pbo
+          armake2 inspect A3_OpenShock.pbo
+          armake2 unpack A3_OpenShock.pbo "$RUNNER_TEMP/addon-unpacked"
+          python3 tools/verify_addon.py A3_OpenShock "$RUNNER_TEMP/addon-unpacked"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: addon-pbo
+          path: A3_OpenShock.pbo
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish Nightly-Rolling
+    needs: [extension, addon]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-extension
+          path: package/@A3OpenShock
+      - uses: actions/download-artifact@v4
+        with:
+          name: addon-pbo
+          path: package/@A3OpenShock/addons
+      - name: Package installable mod
+        shell: bash
+        run: |
+          test -s package/@A3OpenShock/arma3_openshock_x64.dll
+          test -s package/@A3OpenShock/addons/A3_OpenShock.pbo
+          cp README.md LICENSE package/@A3OpenShock/
+          printf '%s\n' "$GITHUB_SHA" > package/@A3OpenShock/BUILD_COMMIT.txt
+          cd package
+          zip -r ../Arma3-OpenShock-windows-x64.zip @A3OpenShock
+      - name: Find or create rolling release
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const tag = 'Nightly-Rolling';
+            let release;
+            try {
+              ({ data: release } = await github.rest.repos.getReleaseByTag({ ...repo, tag }));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              // Recover an unpublished draft left by an interrupted first upload.
+              const releases = await github.paginate(github.rest.repos.listReleases, repo);
+              release = releases.find(item => item.tag_name === tag);
+              if (!release) {
+                ({ data: release } = await github.rest.repos.createRelease({
+                  ...repo, tag_name: tag, target_commitish: context.sha,
+                  name: tag, draft: true, prerelease: false
+                }));
+              }
+            }
+            if (release.immutable) throw new Error('Nightly-Rolling must be mutable to replace nightly assets.');
+            core.setOutput('id', release.id);
+            core.setOutput('upload_url', release.upload_url);
+      - name: Deploy nightly archive
+        uses: NanashiTheNameless/deploy-nightly@master
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          release_id: ${{ steps.release.outputs.id }}
+          asset_path: Arma3-OpenShock-windows-x64.zip
+          asset_name: Arma3-OpenShock-windows-x64-$$.zip
+          asset_content_type: application/zip
+          max_releases: 1
+          # Reuse the asset on same-commit reruns; avoid duplicate date/hash filenames.
+          ignore_hash: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update rolling tag and mark latest
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        with:
+          script: |
+            const repo = context.repo;
+            const tag = 'Nightly-Rolling';
+            try {
+              await github.rest.git.getRef({ ...repo, ref: `tags/${tag}` });
+              await github.rest.git.updateRef({ ...repo, ref: `tags/${tag}`, sha: context.sha, force: true });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({ ...repo, ref: `refs/tags/${tag}`, sha: context.sha });
+            }
+            const body = [
+              'Automated experimental build from `main`. No support or warranty; see the README disclaimer.',
+              '',
+              `Commit: ${context.sha}`,
+              `Build: ${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Download the Windows x64 ZIP and extract `@A3OpenShock` into your Arma 3 installation.',
+              'Enable this local mod together with CBA_A3. Includes the extension DLL, addon PBO, README, and license.',
+              'The PBO is unsigned. In-game and hardware behavior is not verified by CI.',
+              '',
+              'This rolling release is replaced by subsequent successful builds.'
+            ].join('\n');
+            await github.rest.repos.updateRelease({
+              ...repo, release_id: Number(process.env.RELEASE_ID),
+              tag_name: tag, target_commitish: context.sha, name: tag,
+              body, draft: false, prerelease: false, make_latest: 'true'
+            });

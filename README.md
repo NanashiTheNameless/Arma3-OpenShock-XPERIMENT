@@ -20,6 +20,14 @@ Sarcasm aside:
 
 Friends don't let friends treat untested AI code as a certified safety system.
 
+## Download
+
+Get the Windows x64 ZIP from [Nightly-Rolling](https://github.com/NanashiTheNameless/Arma3-OpenShock-XPERIMENT/releases/tag/Nightly-Rolling). Extract its `@A3OpenShock` folder into your Arma 3 installation and enable it alongside CBA_A3.
+
+The [Nightly Rolling workflow](.github/workflows/nightly.yml) builds on pushes to `main` and through **Actions → Nightly Rolling → Run workflow**. It tests and builds the Windows extension, builds and verifies the addon PBO, and publishes the complete package using `NanashiTheNameless/deploy-nightly@master`. It keeps one matching ZIP; reruns of an already published commit reuse that asset.
+
+`Nightly-Rolling` is marked **Latest** on GitHub. This is still an experimental nightly build, with an unsigned PBO and no in-game or hardware validation. GitHub's prerelease flag is off so the release can carry the Latest label.
+
 ## Requirements and setup
 
 - Arma 3 2.18 or newer and [CBA_A3](https://github.com/CBATeam/CBA_A3).
