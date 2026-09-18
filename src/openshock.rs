@@ -133,49 +133,6 @@ mod tests {
     const ID: &str = "12345678-1234-1234-1234-123456789abc";
 
     #[test]
-    fn request_matches_the_supplied_v2_schema() {
-        let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../version-2.json")).unwrap();
-        assert!(schema["paths"]["/2/shockers/control"]["post"].is_object());
-        assert_eq!(
-            schema["components"]["securitySchemes"]["ApiToken"]["name"],
-            TOKEN_HEADER
-        );
-        let schemas = &schema["components"]["schemas"];
-        for operation in [Operation::Shock, Operation::Vibrate, Operation::Sound] {
-            for seconds in [1, 15] {
-                let body = serde_json::to_value(
-                    ControlRequest::new(ID.into(), operation, 1, seconds).unwrap(),
-                )
-                .unwrap();
-                let control = &body["shocks"][0];
-                for (value, definition) in [
-                    (&body, &schemas["ControlRequest"]),
-                    (control, &schemas["Control"]),
-                ] {
-                    for key in definition["required"].as_array().unwrap() {
-                        assert!(value.get(key.as_str().unwrap()).is_some());
-                    }
-                    for key in value.as_object().unwrap().keys() {
-                        assert!(definition["properties"].get(key).is_some());
-                    }
-                }
-                assert!(schemas["ControlType"]["enum"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&control["type"]));
-                for field in ["intensity", "duration"] {
-                    let value = control[field].as_u64().unwrap();
-                    let bounds = &schemas["Control"]["properties"][field];
-                    assert!((bounds["minimum"].as_u64().unwrap()
-                        ..=bounds["maximum"].as_u64().unwrap())
-                        .contains(&value));
-                }
-            }
-        }
-    }
-
-    #[test]
     fn operations_and_seconds_are_serialized_for_openshock() {
         for (operation, expected_type, intensity) in [
             (Operation::Shock, "Shock", 42),

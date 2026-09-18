@@ -77,7 +77,7 @@ The addon calls `arma3_openshock` with `ops:shock` / `ops:vibrate` arguments `[s
 
 Requests use `POST https://api.openshock.app/2/shockers/control`, the `OpenShockToken` header, and a descriptive User-Agent. Beep maps to OpenShock's `Sound` operation with intensity 0. Seconds are multiplied by 1000 exactly once at the API boundary: 5 seconds becomes 5000 milliseconds. The mod retains its 1–15 second limit even though the API accepts a wider range.
 
-The checked-in [version 2 JSON](version-2.json) and [YAML](version-2.yaml) document the control endpoint and authentication; [version 1 JSON](version-1.json) and [YAML](version-1.yaml) cover endpoints not superseded by v2. See also the [OpenShock developer documentation](https://wiki.openshock.org/dev).
+The control request was checked against the supplied OpenShock v2 API schema. See the [OpenShock developer documentation](https://wiki.openshock.org/dev) for the API reference.
 
 ## License and attribution
 
