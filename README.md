@@ -26,7 +26,17 @@ Get the Windows x64 ZIP from [Nightly-Rolling](https://github.com/NanashiTheName
 
 The [Nightly Rolling workflow](.github/workflows/nightly.yml) builds on pushes to `main` and through **Actions → Nightly Rolling → Run workflow**. It tests and builds the Windows extension, builds and verifies the addon PBO, and publishes the complete package using `NanashiTheNameless/deploy-nightly@master`. It keeps one matching ZIP; reruns of an already published commit reuse that asset.
 
-`Nightly-Rolling` is marked **Latest** on GitHub. This is still an experimental nightly build, with an unsigned PBO and no in-game or hardware validation. GitHub's prerelease flag is off so the release can carry the Latest label.
+`Nightly-Rolling` is marked as a **prerelease** and is not marked **Latest** on GitHub. This is an experimental nightly build, with an unsigned PBO and no in-game or hardware validation.
+
+### Fixed versioned releases
+
+Use [Static Release](.github/workflows/release.yml) to publish a fixed build for distribution or BattlEye review:
+
+1. Set the package version in `Cargo.toml`, update `Cargo.lock` with `cargo check`, and commit the changes to `main`.
+2. Open **Actions → Static Release → Run workflow**, select **main**, and enter the matching new tag (for example, `v1.0.0` for package version `1.0.0`). Optionally mark it as a prerelease. Do not create the tag beforehand.
+3. Once the checks and builds pass, the workflow publishes a versioned Windows x64 ZIP, the identical standalone `arma3_openshock_x64.dll`, and `SHA256SUMS.txt`. The ZIP records the source commit and release version. Use this version's release page or DLL download link for a BattlEye submission.
+
+The workflow refuses existing tags and releases, including drafts; it never moves a tag or replaces an asset. It uploads all files to a draft before publishing. Tagged releases are marked **Latest** unless the prerelease option is selected. If publishing fails after creating the tag or draft, inspect the failed run and remove only that **unpublished** draft/tag before retrying. Keep published versions unchanged and increment the version for subsequent builds. Static releases remain experimental and do not imply BattlEye approval.
 
 ## Requirements and setup
 

@@ -1,0 +1,215 @@
+name: Static Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'New release tag matching Cargo.toml (for example v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: Mark as a prerelease
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag }}
+
+jobs:
+  validate:
+    name: Validate new release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check branch and version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+
+          if os.environ['GITHUB_REF'] != 'refs/heads/main':
+              raise SystemExit('Run Static Release from main.')
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', tag):
+              raise SystemExit('Use a version tag such as v1.0.0 or v1.0.0-rc.1.')
+          with open('Cargo.toml', 'rb') as manifest:
+              expected = 'v' + tomllib.load(manifest)['package']['version']
+          if tag != expected:
+              raise SystemExit(f'Tag must match Cargo.toml: expected {expected}. Update Cargo.toml and Cargo.lock before releasing a new version.')
+          PY
+      - name: Refuse an existing tag or release
+        uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            let existingTag;
+            try {
+              existingTag = await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (existingTag) throw new Error(`Tag ${tag} already exists; static releases are never overwritten.`);
+            const releases = await github.paginate(github.rest.repos.listReleases, context.repo);
+            if (releases.some(release => release.tag_name === tag)) {
+              throw new Error(`Release ${tag} already exists (possibly as a draft); inspect it before continuing.`);
+            }
+
+  extension:
+    name: Build Windows x64 extension
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --target x86_64-pc-windows-msvc
+      - name: Check formatting
+        run: cargo +stable fmt --check
+      - name: Lint
+        run: cargo +stable clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Test without hardware
+        run: cargo +stable test --locked --target x86_64-pc-windows-msvc
+      - name: Build extension
+        run: cargo +stable build --release --locked --target x86_64-pc-windows-msvc
+      - name: Apply Arma extension filename
+        run: Copy-Item target/x86_64-pc-windows-msvc/release/arma3_openshock.dll arma3_openshock_x64.dll
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: static-windows-extension
+          path: arma3_openshock_x64.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  addon:
+    name: Build addon PBO
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PBO build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Install PBO builder
+        run: cargo +stable install armake2 --version 0.3.0
+      - name: Build and verify PBO
+        shell: bash
+        run: |
+          armake2 build -e prefix=A3_OpenShock A3_OpenShock A3_OpenShock.pbo
+          armake2 inspect A3_OpenShock.pbo
+          armake2 unpack A3_OpenShock.pbo "$RUNNER_TEMP/addon-unpacked"
+          python3 tools/verify_addon.py A3_OpenShock "$RUNNER_TEMP/addon-unpacked"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: static-addon-pbo
+          path: A3_OpenShock.pbo
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish fixed release
+    needs: [extension, addon]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: static-windows-extension
+          path: package/@A3OpenShock
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: static-addon-pbo
+          path: package/@A3OpenShock/addons
+      - name: Package mod and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s package/@A3OpenShock/arma3_openshock_x64.dll
+          test -s package/@A3OpenShock/addons/A3_OpenShock.pbo
+          cp README.md LICENSE package/@A3OpenShock/
+          printf '%s\n' "$GITHUB_SHA" > package/@A3OpenShock/BUILD_COMMIT.txt
+          printf '%s\n' "$RELEASE_TAG" > package/@A3OpenShock/BUILD_VERSION.txt
+          mkdir release-assets
+          cp package/@A3OpenShock/arma3_openshock_x64.dll release-assets/
+          cd package
+          zip -r "../release-assets/Arma3-OpenShock-${RELEASE_TAG}-windows-x64.zip" @A3OpenShock
+          cd ../release-assets
+          sha256sum "Arma3-OpenShock-${RELEASE_TAG}-windows-x64.zip" arma3_openshock_x64.dll > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+      - name: Create release and publish complete assets
+        uses: actions/github-script@v9.0.0
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const repo = context.repo;
+            const tag = process.env.RELEASE_TAG;
+            const prerelease = process.env.PRERELEASE === 'true';
+            // Recheck after building. Never reuse a published release or a partial draft.
+            const releases = await github.paginate(github.rest.repos.listReleases, repo);
+            if (releases.some(release => release.tag_name === tag)) {
+              throw new Error(`Release ${tag} already exists; refusing to replace it.`);
+            }
+            const assets = [
+              [`Arma3-OpenShock-${tag}-windows-x64.zip`, 'application/zip'],
+              ['arma3_openshock_x64.dll', 'application/octet-stream'],
+              ['SHA256SUMS.txt', 'text/plain']
+            ].map(([name, contentType]) => ({
+              name, contentType, data: fs.readFileSync(`release-assets/${name}`)
+            }));
+            // Creating (never updating) the ref also rejects tags created during the build.
+            await github.rest.git.createRef({ ...repo, ref: `refs/tags/${tag}`, sha: context.sha });
+            const body = [
+              `Fixed experimental release ${tag}. No support or warranty; see the README disclaimer.`,
+              '',
+              `Commit: ${context.sha}`,
+              `Build: ${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Extract the Windows x64 ZIP into your Arma 3 installation and enable @A3OpenShock with CBA_A3.',
+              'The standalone DLL is identical to the one in the ZIP and is provided for BattlEye review.',
+              'SHA256SUMS.txt contains hashes for both downloads.',
+              'This release does not imply BattlEye approval. The PBO is unsigned; CI does not verify in-game or hardware behavior.',
+              '',
+              'This workflow never replaces existing versioned releases or their assets.'
+            ].join('\n');
+            // Upload everything before making the release visible to users.
+            const { data: release } = await github.rest.repos.createRelease({
+              ...repo, tag_name: tag, target_commitish: context.sha,
+              name: tag, body, draft: true, prerelease, make_latest: 'false'
+            });
+            for (const asset of assets) {
+              await github.rest.repos.uploadReleaseAsset({
+                ...repo, release_id: release.id, name: asset.name, data: asset.data,
+                headers: { 'content-type': asset.contentType, 'content-length': asset.data.length }
+              });
+            }
+            const { data: published } = await github.rest.repos.updateRelease({
+              ...repo, release_id: release.id, draft: false,
+              make_latest: prerelease ? 'false' : 'true'
+            });
+            await core.summary.addHeading(`Published ${tag}`)
+              .addLink('Download fixed release', published.html_url).write();
