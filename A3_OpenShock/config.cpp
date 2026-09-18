@@ -5,6 +5,12 @@ class CfgPatches {
 		requiredVersion = 2.18;
 		requiredAddons[] = {"cba_main", "cba_xeh", "cba_settings", "cba_keybinding"};
     };
+
+    // Legacy addon identity for upstream dependencies and CfgPatches checks.
+    // Inherit the same prerequisites; functions and init handlers are registered once.
+    class A3Pishock: A3OpenShock {
+        name = "Arma 3 OpenShock (PiShock addon compatibility)";
+    };
 };
 
 // Declare Functions

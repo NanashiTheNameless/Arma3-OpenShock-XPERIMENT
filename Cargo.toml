@@ -1,12 +1,12 @@
 [package]
 name = "arma3-openshock"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "blocking", "rustls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arma-rs = "=1.13.0"

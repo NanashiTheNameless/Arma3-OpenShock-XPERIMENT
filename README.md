@@ -88,6 +88,16 @@ Tests validate the API payload, input bounds, extension command signatures, and 
 
 ## Scripting and API
 
+### Compatibility with upstream addons
+
+This fork provides the legacy `CfgPatches` name `A3Pishock` alongside `A3OpenShock`. Addons declaring `requiredAddons[] = {"A3Pishock"}` and scripts checking `isClass (configFile >> "CfgPatches" >> "A3Pishock")` can recognize this fork. The alias inherits the same prerequisites and does not register duplicate functions or initialization handlers. New integrations should use `A3OpenShock`.
+
+Integrations that call `NUG_fnc_shock`, `NUG_fnc_vibrate`, or `NUG_fnc_beep` retain the same arguments and duration units. Output must be enabled, remote calls require the client's permission, and the global cooldown applies across all three operations.
+
+The alias does not restore old `A3_piShock` file paths, the `arma3_pishock` extension or callback name, PiShock credentials, or the `NUG_piShock_enable` setting. Integrations using those need updating to the OpenShock equivalents. Steam Workshop dependencies and server mod requirements also need updating separately. Do not load the original addon alongside this fork: both define the same legacy addon identity and `NUG_fnc_*` functions. Third-party compatibility still needs in-game validation.
+
+### Function calls
+
 Existing SQF function names remain available:
 
 ```sqf
